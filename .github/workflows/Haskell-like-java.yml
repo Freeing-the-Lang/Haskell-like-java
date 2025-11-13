@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build-3os:
-    name: "Build — ${{ matrix.os }} (${{ github.ref_name }})"
+    name: "Build — ${{ matrix.os }}"
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -27,7 +27,7 @@ jobs:
           fetch-depth: 0
 
       # ----------------------------------------------------------
-      # Java 설치
+      # Setup Java
       # ----------------------------------------------------------
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -36,18 +36,18 @@ jobs:
           java-version: 17
 
       # ----------------------------------------------------------
-      # Java 컴파일
+      # Build (UTF-8 강제 적용) ← 핵심 수정
       # ----------------------------------------------------------
       - name: Build Haskell-like-Java
         shell: bash
         run: |
           mkdir -p bin
-          echo "[Build] Compiling Java interpreter..."
+          echo "[Build] Compiling Java interpreter (UTF-8 enforced)..."
           find src -name "*.java" > sources.txt
-          javac -d bin @sources.txt
+          javac -encoding UTF-8 -d bin @sources.txt
 
       # ----------------------------------------------------------
-      # Demo 실행
+      # Run Example
       # ----------------------------------------------------------
       - name: Run Example
         shell: bash
@@ -56,7 +56,7 @@ jobs:
           java -cp bin haskelljava.Main || true
 
       # ----------------------------------------------------------
-      # ProofLedger 생성
+      # ProofLedger
       # ----------------------------------------------------------
       - name: Generate ProofLedger
         shell: bash
@@ -82,7 +82,7 @@ jobs:
           $HASH examples/*.hlj >> $OUT 2>/dev/null || true
 
       # ----------------------------------------------------------
-      # 아티팩트 업로드
+      # Upload Artifacts
       # ----------------------------------------------------------
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
@@ -94,9 +94,9 @@ jobs:
             examples/**
             proof/**
 
-  # ==============================================================
-  # Release Job — ZIP 하나만 업로드 (404/충돌 0%)
-  # ==============================================================
+  # ======================================================================
+  # Release Job — ZIP 하나만 업로드 (충돌/404 0%)
+  # ======================================================================
   release:
     needs: build-3os
     runs-on: ubuntu-latest
@@ -119,13 +119,16 @@ jobs:
           path: release
 
       # ----------------------------------------------------------
-      # ZIP 하나로 통합 → 가장 안정적
+      # Create Unified ZIP
       # ----------------------------------------------------------
       - name: Create Release ZIP
         run: |
           cd release
           zip -r haskell-like-java-${{ steps.tag.outputs.version }}.zip ./*
 
+      # ----------------------------------------------------------
+      # Publish Release
+      # ----------------------------------------------------------
       - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
@@ -133,10 +136,10 @@ jobs:
           name: "Haskell-like-Java Release ${{ steps.tag.outputs.version }}"
           body: |
             ## Haskell-like-Java Auto Release
-            ✔ Java 기반 함수형 해석기(Build)  
-            ✔ 3OS(Windows/macOS/Linux) 컴파일 완료  
+            ✔ Java17 3OS 빌드  
+            ✔ UTF-8 강제 적용 (Windows 인코딩 오류 완전 해결)  
             ✔ ProofLedger 자동 생성  
-            ✔ 모든 산출물 ZIP 하나로 통합  
-            ✔ Release 충돌 및 404 완전 제거  
+            ✔ ZIP 1개만 업로드 → 404/충돌 0%  
+            ✔ Freeing-the-Lang 통합 생태계 규격  
           files: |
             release/haskell-like-java-${{ steps.tag.outputs.version }}.zip
