@@ -1,0 +1,142 @@
+name: "Haskell-like-Java — 3OS Build + ProofLedger + Clean Release"
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: haskell-like-java-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-3os:
+    name: "Build — ${{ matrix.os }} (${{ github.ref_name }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ----------------------------------------------------------
+      # Java 설치
+      # ----------------------------------------------------------
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # ----------------------------------------------------------
+      # Java 컴파일
+      # ----------------------------------------------------------
+      - name: Build Haskell-like-Java
+        shell: bash
+        run: |
+          mkdir -p bin
+          echo "[Build] Compiling Java interpreter..."
+          find src -name "*.java" > sources.txt
+          javac -d bin @sources.txt
+
+      # ----------------------------------------------------------
+      # Demo 실행
+      # ----------------------------------------------------------
+      - name: Run Example
+        shell: bash
+        run: |
+          echo "Running example..."
+          java -cp bin haskelljava.Main || true
+
+      # ----------------------------------------------------------
+      # ProofLedger 생성
+      # ----------------------------------------------------------
+      - name: Generate ProofLedger
+        shell: bash
+        run: |
+          mkdir -p proof
+          OUT="proof/proofledger.txt"
+
+          echo "Haskell-like-Java ProofLedger" > $OUT
+          echo "OS: ${{ runner.os }}" >> $OUT
+          echo "Commit: $GITHUB_SHA" >> $OUT
+          echo "Timestamp: $(date)" >> $OUT
+          echo "" >> $OUT
+          echo "[SHA256 Checksums]" >> $OUT
+
+          if command -v sha256sum >/dev/null 2>&1; then
+            HASH="sha256sum"
+          else
+            HASH="shasum -a 256"
+          fi
+
+          $HASH bin/* >> $OUT 2>/dev/null || true
+          $HASH src/*.java >> $OUT 2>/dev/null || true
+          $HASH examples/*.hlj >> $OUT 2>/dev/null || true
+
+      # ----------------------------------------------------------
+      # 아티팩트 업로드
+      # ----------------------------------------------------------
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: haskell-like-java-${{ runner.os }}
+          path: |
+            bin/**
+            src/**
+            examples/**
+            proof/**
+
+  # ==============================================================
+  # Release Job — ZIP 하나만 업로드 (404/충돌 0%)
+  # ==============================================================
+  release:
+    needs: build-3os
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Tag
+        id: tag
+        run: |
+          VERSION="v1.$(date +%Y%m%d%H%M%S)"
+          git tag $VERSION
+          git push origin $VERSION
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+
+      # ----------------------------------------------------------
+      # ZIP 하나로 통합 → 가장 안정적
+      # ----------------------------------------------------------
+      - name: Create Release ZIP
+        run: |
+          cd release
+          zip -r haskell-like-java-${{ steps.tag.outputs.version }}.zip ./*
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: "Haskell-like-Java Release ${{ steps.tag.outputs.version }}"
+          body: |
+            ## Haskell-like-Java Auto Release
+            ✔ Java 기반 함수형 해석기(Build)  
+            ✔ 3OS(Windows/macOS/Linux) 컴파일 완료  
+            ✔ ProofLedger 자동 생성  
+            ✔ 모든 산출물 ZIP 하나로 통합  
+            ✔ Release 충돌 및 404 완전 제거  
+          files: |
+            release/haskell-like-java-${{ steps.tag.outputs.version }}.zip
